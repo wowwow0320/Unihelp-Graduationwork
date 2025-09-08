@@ -1,0 +1,19 @@
+# requirements.txt
+fastapi
+uvicorn[standard]
+python-dotenv
+pdf2docx
+llama-parse
+python-docx
+beautifulsoup4
+pandas
+lxml
+html5lib
+langchain
+langchain-openai
+langchain-chroma
+langchain-teddynote
+scikit-learn
+tiktoken
+langchain-community
+python-multipart
