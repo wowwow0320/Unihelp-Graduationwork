@@ -57,7 +57,7 @@ class VectorStoreService:
         db = self._load_db(collection_name)
         return db.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 5, "lambda_mult": 0.9, "fetch_k": 10}
+            search_kwargs={"k": 10, "lambda_mult": 0.9, "fetch_k": 20}
         )
 
 vector_store_service = VectorStoreService()
