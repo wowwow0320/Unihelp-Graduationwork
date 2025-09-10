@@ -1,255 +1,182 @@
-# PDF 기반 RAG 챗봇 API (FastAPI)
+# 📚 PDF 문서 기반 RAG 챗봇 API 서버
 
-이 프로젝트는 FastAPI를 사용하여 PDF 문서의 내용을 기반으로 질문에 답변하는 RAG(Retrieval-Augmented Generation) 챗봇 API를 구축합니다. 사용자는 PDF 파일을 업로드하여 고유한 이름의 '컬렉션'을 생성할 수 있으며, 개발자는 설정 파일에서 특정 컬렉션을 지정하여 챗봇의 지식 베이스로 사용할 수 있습니다.
+## 1. 프로젝트 소개
 
-## ✨ 주요 기능
+이 프로젝트는 복잡한 표(Table)가 포함된 PDF 문서를 기반으로 질문에 답변하는 **RAG (Retrieval-Augmented Generation) 챗봇**을 FastAPI로 구현한 것입니다.
 
-* **동적 지식 베이스**: PDF 파일을 업로드하여 여러 개의 독립된 지식 컬렉션을 생성하고 관리할 수 있습니다.
-* **MVC 유사 아키텍처**: `routers`, `services`, `models` 등 서비스 지향적인 구조로 코드를 구성하여 유지보수와 확장이 용이합니다.
-* **쉬운 지식 베이스 전환**: 개발자는 `.env` 파일의 `DEFAULT_DB_COLLECTION_NAME` 값 변경만으로 챗봇이 사용하는 지식 베이스를 손쉽게 전환할 수 있습니다.
-* **자동화된 문서 처리**: PDF에서 텍스트와 테이블을 추출하여 RAG에 최적화된 형식으로 자동 변환하고 벡터 DB에 저장합니다.
-* **API 문서 자동 생성**: FastAPI의 내장 기능을 통해 `http://127.0.0.1:8000/docs`에서 Swagger UI 문서를 제공합니다.
+사용자가 PDF 파일을 업로드하면, 서버는 다단계 문서 처리 파이프라인을 통해 문서의 텍스트와 표 데이터를 추출하고, 이를 검색에 용이한 형태로 가공하여 벡터 데이터베이스(Chroma DB)에 저장합니다. 이후 사용자는 채팅 API를 통해 문서 내용에 관한 질문을 하고, RAG 기술을 통해 정확도 높은 답변을 얻을 수 있습니다.
 
----
+## 2. 주요 특징
 
-## 🚀 시작하기
+* **🧠 다단계 문서 처리 파이프라인**: `PDF` → `DOCX` → `HTML` → `RAG 최적화 TXT`로 이어지는 체계적인 변환 과정을 통해 정보 손실을 최소화하고 데이터 품질을 극대화합니다.
+* **🤖 LlamaParse 활용**: LlamaIndex의 LlamaParse를 사용하여 PDF의 텍스트와 표를 지능적으로 분리하고 추출합니다.
+* **📊 표 데이터 RAG 최적화**: 복잡한 표 구조를 RAG가 이해하기 쉬운 "Key-Value" 형태의 문장으로 변환하여, 표 내용에 대한 질문에 정확하게 답변할 수 있습니다.
+* **🚀 FastAPI 기반 비동기 API**: FastAPI를 사용하여 문서 처리 및 채팅 기능을 비동기 방식으로 제공하여 높은 성능을 보장합니다.
+* **📦 벡터 DB 자동 구축**: 처리된 텍스트와 표 데이터를 자동으로 임베딩하여 Chroma DB에 저장하고, 검색을 위한 Retriever를 구성합니다.
 
-이 섹션에서는 프로젝트를 로컬 환경에서 설정하고 실행하는 방법을 안내합니다.
-
-### 1. 사전 요구사항
-
-* **Python 3.9 이상**: [Python 공식 웹사이트](https://www.python.org/downloads/)에서 설치할 수 있습니다.
-* **API 키**:
-    * **OpenAI API Key**: [OpenAI 웹사이트](https://platform.openai.com/api-keys)에서 발급받으세요.
-    * **LlamaParse API Key**: [LlamaCloud](https://cloud.llamaindex.ai/)에 가입하여 발급받으세요. (PDF 파싱에 사용됩니다.)
-
-### 2. 프로젝트 설정
-
-#### (1) 가상 환경 생성 및 활성화
-
-프로젝트 의존성을 시스템의 다른 프로젝트와 격리하기 위해 가상 환경을 생성하고 활성화합니다.
-
-```bash
-# 1. 'venv'라는 이름의 가상 환경 생성
-python -m venv venv
-
-# 2. 가상 환경 활성화
-# Windows의 경우
-.\venv\Scripts\activate
-# macOS / Linux의 경우
-source venv/bin/activate
-```
-
-가상 환경이 활성화되면 터미널 프롬프트 앞에 `(venv)`가 표시됩니다.
-
-#### (2) 의존성 라이브러리 설치
-
-프로젝트에 필요한 모든 라이브러리를 `requirements.txt` 파일을 이용해 한 번에 설치합니다.
-
-```bash
-pip install -r requirements.txt
-```
-
-#### (3) 환경 변수 설정 (`.env` 파일)
-
-프로젝트 최상위 경로에 `.env` 파일을 생성하고 아래 내용을 복사하여 붙여넣으세요. 그리고 **실제 API 키를 입력**해야 합니다.
-
-```text
-# .env
-
-# --- AI Model Selection ---
-DEFAULT_MODEL="OPENAI"
-
-# --- API Keys ---
-OPENAI_API_KEY="sk-..."
-LLAMA_CLOUD_API_KEY="ll-..."
-
-# --- DB Collection ---
-# 채팅 API에서 사용할 기본 컬렉션 이름입니다.
-# 개발자가 이 값을 직접 수정하여 챗봇의 지식 베이스를 변경할 수 있습니다.
-DEFAULT_DB_COLLECTION_NAME="lecture-2025-2"
-```
-
-### 3. 서버 실행
-
-모든 설정이 완료되었습니다. 이제 아래 명령어로 FastAPI 개발 서버를 실행합니다.
-
-```bash
-uvicorn main:app --reload
-```
-
-서버가 성공적으로 실행되면 웹 브라우저에서 `http://127.0.0.1:8000/docs` 로 접속하여 API 문서를 확인하고 테스트할 수 있습니다.
-
----
-
-## ⚙️ Git Ignore 설정 (`.gitignore`)
-
-프로젝트를 Git으로 관리할 때, 민감한 정보(API 키), 불필요한 파일, 자동으로 생성되는 데이터가 저장소에 포함되지 않도록 `.gitignore` 파일을 설정하는 것이 매우 중요합니다. 프로젝트 최상위 경로에 **`.gitignore`** 라는 이름의 파일을 생성하고 아래 내용을 복사하여 붙여넣으세요.
-
-```gitignore
-# ---------------------------------
-# .gitignore
-# ---------------------------------
-
-# 환경 변수 파일
-# API 키와 같은 민감한 정보가 포함되어 있으므로 절대 Git에 올리면 안 됩니다.
-.env
-
-# Python 가상 환경 폴더
-# 각자의 컴퓨터 환경에 따라 내용이 다르며, requirements.txt를 통해 재생성해야 합니다.
-venv/
-/venv/
-
-# Python 캐시 및 컴파일 파일
-# 자동으로 생성되는 불필요한 파일입니다.
-__pycache__/
-*.pyc
-
-# 자동 생성 데이터 폴더
-# 사용자가 업로드한 파일과 생성된 벡터 DB는 소스 코드가 아닙니다.
-uploads/
-chroma_db_combined/
-
-# IDE / 편집기 설정 파일
-# 개인의 개발 환경 설정을 공유할 필요는 없습니다.
-.vscode/
-.idea/
-
-# macOS 시스템 파일
-.DS_Store
-```
-
----
-
-## 📖 API 사용 가이드
-
-API는 크게 두 가지 기능을 제공합니다: **PDF 처리 및 DB 구축**과 **채팅**.
-
-### 1단계: PDF 처리 및 지식 컬렉션 구축
-
-먼저 질문의 기반이 될 PDF 파일을 업로드하여 벡터 DB에 지식 컬렉션을 만들어야 합니다. 이 엔드포인트는 파일과 텍스트 데이터를 함께 전송하기 위해 **`multipart/form-data`** 형식을 사용합니다.
-
-* **Endpoint**: `POST /api/v1/processing/process-pdf`
-* **요청 형식**: `multipart/form-data`
-* **폼 필드 (Form Fields)**:
-    * `collection_name` (string, 필수): 생성할 지식 컬렉션의 고유한 이름.
-    * `file` (file, 필수): 업로드할 PDF 파일.
-* **`curl` 예시**:
-
-    ```bash
-    curl -X 'POST' \
-      '[http://127.0.0.1:8000/api/v1/processing/process-pdf](http://127.0.0.1:8000/api/v1/processing/process-pdf)' \
-      -H 'accept: application/json' \
-      -F 'collection_name=lecture-2025-2' \
-      -F 'file=@/경로/내/파일.pdf'
-    ```
-
-> #### 💡 상세 사용법: UI로 쉽게 파일 업로드하기
->
-> `curl` 명령어가 익숙하지 않다면, 서버 실행 후 `http://127.0.0.1:8000/docs`에 접속하세요. `POST /api/v1/processing/process-pdf` 항목을 열고 "Try it out" 버튼을 누르면 웹 화면에서 직접 컬렉션 이름을 입력하고 파일을 선택하여 테스트할 수 있습니다.
-> 
-
-### 2단계: 채팅 (질의응답)
-
-지식 컬렉션 구축이 완료되면, `.env` 파일에 설정된 컬렉션을 대상으로 질문할 수 있습니다. 이 엔드포인트는 텍스트 데이터만 주고받으므로 **`application/json`** 형식을 사용합니다.
-
-* **Endpoint**: `POST /api/v1/chat/chat`
-* **요청 형식**: `application/json`
-* **요청 본문 (JSON)**:
-
-    ```json
-    {
-      "question": "컴퓨터과학과 졸업 요건에 대해서 알려줘."
-    }
-    ```
-* **`curl` 예시**:
-
-    ```bash
-    curl -X 'POST' \
-      '[http://127.0.0.1:8000/api/v1/chat/chat](http://127.0.0.1:8000/api/v1/chat/chat)' \
-      -H 'accept: application/json' \
-      -H 'Content-Type: application/json' \
-      -d '{
-      "question": "컴퓨터과학과 졸업 요건에 대해서 알려줘."
-    }'
-    ```
-
----
-
-## 🤔 문제 해결 (Troubleshooting)
-
-#### `422 Unprocessable Entity` 오류가 발생하나요?
-
-이 오류는 API로 보낸 요청 데이터의 형식이 잘못되었을 때 발생합니다. 주로 JSON 문법 오류가 원인입니다.
-
-* **❌ 잘못된 예시 (마지막에 쉼표가 있음):** `{ "question": "질문 내용.", }`
-* **❌ 잘못된 예시 (값의 시작 따옴표가 없음):** `{ "question": 질문 내용" }`
-* **✅ 올바른 예시:** `{ "question": "질문 내용" }`
-
-#### `ModuleNotFoundError` 오류가 발생하나요?
-
-필수 라이브러리가 설치되지 않았다는 의미입니다. 아래 사항을 확인하세요.
-
-1.  **가상 환경(`venv`)이 활성화**되어 있는지 확인하세요.
-2.  `pip install -r requirements.txt` 명령어로 모든 라이브러리가 잘 설치되었는지 확인하세요.
-
----
-
-## 📂 프로젝트 구성
-
-### 최종 `requirements.txt`
-
-```text
-# requirements.txt
-fastapi
-uvicorn[standard]
-python-dotenv
-pdf2docx
-llama-parse
-python-docx
-beautifulsoup4
-pandas
-lxml
-html5lib
-langchain
-langchain-openai
-langchain-chroma
-langchain-teddynote
-scikit-learn
-tiktoken
-langchain-community
-python-multipart
-```
-
-### 디렉토리 구조
+## 3. 디렉토리 구조
 
 ```
 /rag_fastapi_project
 |
-├── main.py
-├── .env
-├── requirements.txt
-├── README.md
+├── main.py             # FastAPI 앱 실행 파일
+├── .env                # 환경 변수 설정 파일
+├── requirements.txt    # Python 패키지 의존성 목록
+├── README.md           # 프로젝트 설명서
 ├── .gitignore
 |
 ├── core/
-│   └── config.py
+│   └── config.py       # 프로젝트 설정 (DB 경로, 기본 컬렉션 이름 등)
 |
 ├── models/
-│   └── llm_factory.py
+│   └── llm_factory.py  # LLM 및 임베딩 모델 생성
 |
 ├── routers/
-│   ├── chat_router.py
-│   └── processing_router.py
+│   ├── chat_router.py  # 채팅 관련 API 라우터
+│   └── processing_router.py  # 문서 처리 및 DB 구축 API 라우터
 |
 ├── schemas/
-│   └── chat_schema.py
+│   └── chat_schema.py  # API 요청/응답 데이터 모델 (Pydantic)
 |
 ├── services/
-│   ├── chat_service.py
-│   ├── file_processing_service.py
-│   └── vector_store_service.py
+│   ├── chat_service.py  # RAG 체인 및 채팅 로직
+│   ├── file_processing_service.py  # PDF 처리 파이프라인 서비스
+│   └── vector_store_service.py     # 벡터 DB 관리 서비스
 |
-├── uploads/  (자동 생성)
-└── chroma_db_combined/ (자동 생성)
+├── uploads/  (자동 생성)  # 업로드된 파일이 저장되는 디렉토리 (자동 생성)
+└── chroma_db_combined/ (자동 생성) # Chroma DB 파일이 저장되는 디렉토리 (자동 생성)
 ```
+
+## 4. 핵심 동작 원리 (파일 처리 파이프라인)
+
+본 프로젝트의 핵심은 업로드된 PDF를 RAG에 가장 적합한 형태로 가공하는 4단계 파이프라인입니다.
+
+1.  **1단계: `PDF` → `DOCX`**
+    * `pdf2docx` 라이브러리를 사용해 원본 PDF를 DOCX 형식으로 변환합니다. 이는 후속 단계에서 표와 텍스트의 구조적 무결성을 유지하는 데 도움이 됩니다.
+
+2.  **2단계: `PDF` → `Markdown` (텍스트 추출)**
+    * `LlamaParse`를 사용하여 PDF에서 표를 제외한 순수 텍스트만 추출하여 Markdown 파일로 저장합니다. 이 텍스트는 문서의 일반적인 문맥 정보를 제공하는 데 사용됩니다.
+
+3.  **3단계: `DOCX` → `HTML` (표 구조화)**
+    * 1단계에서 생성된 DOCX를 HTML로 변환합니다. 이 과정은 복잡한 표의 행(row), 열(column), 병합된 셀(cell) 구조를 명확하게 보존하는 데 매우 효과적입니다.
+
+4.  **4단계: `HTML` → `RAG 최적화 TXT` (표 데이터 문장 변환)**
+    * 3단계의 HTML에서 테이블 데이터를 `pandas`로 읽어옵니다.
+    * 각 **테이블의 한 행(row)**을 정보 단위로 보고, `제목: [표 제목], 열1: [값1], 열2: [값2], ...` 와 같은 **하나의 완전한 문장으로 변환**합니다.
+    * 이 방식은 벡터 검색 시 표의 특정 행에 대한 정보가 하나의 단위로 묶여 검색되도록 하여 RAG의 성능을 극대화합니다.
+
+5.  **5단계: 벡터 DB 구축**
+    * 2단계에서 생성된 `Markdown` (일반 텍스트)과 4단계에서 생성된 `TXT` (표 데이터 문장)를 함께 임베딩하여 지정된 `collection_name`으로 Chroma DB에 저장합니다.
+
+## 5. API 명세
+
+### 문서 처리 및 DB 구축
+
+PDF 파일을 처리하고 벡터 DB를 생성합니다.
+
+* **Endpoint**: `/process-pdf-full-and-build-db`
+* **Method**: `POST`
+* **Request**: `multipart/form-data`
+    * `file`: 업로드할 PDF 파일
+    * `collection_name` (str): 생성 또는 업데이트할 DB 컬렉션의 이름
+* **Success Response** (200 OK):
+
+    ```json
+    {
+      "message": "PDF 파일 처리 및 'my_collection' 벡터 DB 구축이 모두 완료되었습니다.",
+      "source_file": "sample.pdf",
+      "docx_file": "uploads/sample.docx",
+      "markdown_file": "uploads/sample.md",
+      "html_file": "uploads/sample.html",
+      "rag_text_file": "uploads/sample.txt"
+    }
+    ```
+
+### 챗봇 답변 받기
+
+문서 내용에 대해 질문하고 답변을 받습니다.
+
+* **Endpoint**: `/chat`
+* **Method**: `POST`
+* **Request**: `application/json`
+
+    ```json
+    {
+      "question": "컴퓨터공학과의 교양필수 과목은 무엇인가요?"
+    }
+    ```
+* **Success Response** (200 OK):
+
+    ```json
+    {
+      "answer": "컴퓨터공학과의 교양필수 과목은 '미적분학', '확률과통계', '공학작문및발표' 입니다."
+    }
+    ```
+
+## 6. 설치 및 실행 방법
+
+1.  **프로젝트 복제**
+    ```bash
+    git clone <repository_url>
+    cd rag_fastapi_project
+    ```
+
+2.  **가상환경 생성 및 활성화**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # macOS/Linux
+    # venv\Scripts\activate  # Windows
+    ```
+
+3.  **의존성 패키지 설치**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **환경 변수 설정 (`.env` 파일 생성)**
+    프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 아래 내용을 채워주세요.
+
+    ```env
+    # LlamaParse API 키
+    LLAMA_CLOUD_API_KEY="ll-..."
+
+    # 사용하는 LLM의 API 키 (예: OpenAI)
+    OPENAI_API_KEY="sk-..."
+
+    # LangSmith 추적을 위한 API 키 (선택 사항)
+    LANGCHAIN_API_KEY="ls__..."
+    LANGCHAIN_TRACING_V2="true"
+    LANGCHAIN_PROJECT="RAG"
+    ```
+
+5.  **기본 DB 컬렉션 설정 (`core/config.py`)**
+    `chat` API가 기본으로 사용할 DB 컬렉션 이름을 `core/config.py` 파일에 지정해야 합니다.
+
+    ```python
+    # core/config.py
+    
+    from pydantic_settings import BaseSettings
+
+    class Settings(BaseSettings):
+        DB_PATH: str = "chroma_db_combined"
+        # 👇 여기에 문서 처리 시 사용한 collection_name을 지정하세요.
+        DEFAULT_DB_COLLECTION_NAME: str = "my_collection"
+
+    settings = Settings()
+    ```
+
+6.  **서버 실행**
+    ```bash
+    uvicorn main:app --reload
+    ```
+
+7.  **API 문서 확인**
+    서버 실행 후, 웹 브라우저에서 `http://127.0.0.1:8000/docs` 로 접속하면 Swagger UI를 통해 API를 테스트할 수 있습니다.
+
+## 7. 사용 방법
+
+1.  Uvicorn 서버를 실행합니다.
+2.  API 클라이언트(Postman, Swagger UI 등)를 사용하여 `POST /process-pdf-full-and-build-db` 엔드포인트에 PDF 파일과 `collection_name`을 전송하여 문서를 처리하고 DB를 구축합니다.
+3.  **`core/config.py`** 파일의 `DEFAULT_DB_COLLECTION_NAME` 값을 방금 사용한 `collection_name`으로 설정하고 서버를 재시작합니다.
+4.  `POST /chat` 엔드포인트에 문서 내용과 관련된 질문을 JSON 형식으로 전송합니다.
+5.  AI가 생성한 답변을 확인합니다.
