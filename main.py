@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from routers import chat_router, processing_router
+from routers import ocr_router
 
 app = FastAPI(
     title="RAG Chatbot API",
@@ -12,6 +13,7 @@ app = FastAPI(
 # 라우터 등록
 app.include_router(processing_router.router, prefix="/api/v1/processing", tags=["File Processing"])
 app.include_router(chat_router.router, prefix="/api/v1/chat", tags=["Chat"])
+app.include_router(ocr_router.router, prefix="/api", tags=["OCR"])
 
 @app.get("/", tags=["Root"])
 async def read_root():

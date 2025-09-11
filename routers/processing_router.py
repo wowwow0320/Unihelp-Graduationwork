@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from schemas.chat_schema import FullProcessingResponse
+# 👇 [수정] 새로 추가한 CollectionListResponse를 가져옵니다.
+from schemas.chat_schema import FullProcessingResponse, CollectionListResponse
 from services.file_processing_service import FileProcessorService
 from services.vector_store_service import vector_store_service
 
@@ -58,3 +59,15 @@ async def process_pdf_full_and_build_db(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+# 👇 [신규 추가] 저장된 컬렉션 목록을 조회하는 API
+@router.get("/collections", response_model=CollectionListResponse)
+async def list_all_collections():
+    """
+    현재 Chroma DB에 저장되어 있는 모든 컬렉션의 목록을 조회합니다.
+    """
+    try:
+        collection_names = vector_store_service.list_collections()
+        return CollectionListResponse(collections=collection_names)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"컬렉션 조회 중 오류 발생: {e}")

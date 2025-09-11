@@ -1,20 +1,36 @@
-# requirements.txt
+# requirements.txt (최종 버전)
+
+# FastAPI 서버
 fastapi
 uvicorn[standard]
+python-multipart
+
+# 설정 관리
 python-dotenv
+
+# LangChain 및 RAG
+langchain
+langchain-openai
+langchain-chroma
+langchain-teddynote
+langchain-community
+tiktoken
+scikit-learn
+
+# PDF -> RAG TXT 파이프라인
 pdf2docx
+PyMuPDF==1.24.9
 llama-parse
 python-docx
 beautifulsoup4
 pandas
 lxml
 html5lib
-langchain
-langchain-openai
-langchain-chroma
-langchain-teddynote
-scikit-learn
-tiktoken
-langchain-community
-python-multipart
-PyMuPDF==1.24.9
+
+# OCR 파이프라인 (신규 추가)
+easyocr
+torch
+torchvision
+pdfplumber
+Pillow
+numpy
