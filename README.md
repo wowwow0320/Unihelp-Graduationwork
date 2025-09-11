@@ -51,12 +51,12 @@
 
 ## 4. API 명세
 
-모든 API는 `http://127.0.0.1:8000/api` 접두사(prefix) 아래에 있습니다.
+모든 API는 `http://127.0.0.1:8000/api/v1` 접두사(prefix) 아래에 있습니다.
 
 ---
 ### Processing & DB Management
 
-#### `POST /process-pdf-full-and-build-db`
+#### `POST /processing/process-pdf-full-and-build-db`
 PDF 파일을 처리하여 모든 중간 파일(DOCX, MD, HTML, TXT)을 생성하고, 최종 결과물로 벡터 DB를 구축합니다.
 
 * **Request**: `multipart/form-data`
@@ -74,7 +74,7 @@ PDF 파일을 처리하여 모든 중간 파일(DOCX, MD, HTML, TXT)을 생성�
     }
     ```
 
-#### `GET /collections`
+#### `GET /processing/collections`
 현재 Chroma DB에 저장되어 있는 모든 컬렉션의 목록을 조회합니다.
 
 * **Success Response** (200 OK):
@@ -85,16 +85,6 @@ PDF 파일을 처리하여 모든 중간 파일(DOCX, MD, HTML, TXT)을 생성�
         "manual_v1",
         "langchain"
       ]
-    }
-    ```
-
-#### `DELETE /collections/{collection_name}`
-지정된 이름의 컬렉션을 DB에서 삭제합니다.
-
-* **Success Response** (200 OK):
-    ```json
-    {
-      "message": "컬렉션 'langchain'이(가) 성공적으로 삭제되었습니다."
     }
     ```
 
@@ -138,7 +128,7 @@ PDF 성적표 파일을 OCR로 분석하여 학점 정보를 JSON으로 반환�
 ---
 ### Chat
 
-#### `POST /chat`
+#### `POST /chat/chat`
 문서 내용에 대해 질문하고 답변을 받습니다. `core/config.py`에 설정된 기본 컬렉션을 대상으로 질문합니다.
 
 * **Request**: `application/json`
@@ -212,8 +202,8 @@ PDF 성적표 파일을 OCR로 분석하여 학점 정보를 JSON으로 반환�
 ## 6. 사용 워크플로우 예시
 
 1.  **서버를 실행합니다.**
-2.  **컬렉션 목록 확인**: `GET /api/collections`를 호출하여 현재 DB에 어떤 컬렉션이 있는지 확인합니다.
-3.  **DB 구축**: `POST /api/process-pdf-full-and-build-db`에 분석할 PDF 파일과 새로 만들거나 추가할 `collection_name`을 지정하여 요청을 보냅니다.
+2.  **컬렉션 목록 확인**: `GET /api/v1/processing/collections`를 호출하여 현재 DB에 어떤 컬렉션이 있는지 확인합니다.
+3.  **DB 구축**: `POST /api/v1/processing/process-pdf-full-and-build-db`에 분석할 PDF 파일과 새로 만들거나 추가할 `collection_name`을 지정하여 요청을 보냅니다.
 4.  **채팅 기본 컬렉션 설정**: DB 구축에 사용한 `collection_name`을 `core/config.py`의 `DEFAULT_DB_COLLECTION_NAME` 값으로 설정한 후, 서버를 재시작합니다.
-5.  **질문하기**: `POST /api/chat`에 문서 내용에 대한 질문을 보내 답변을 확인합니다.
-6.  **(별도 기능) 학점 분석**: `POST /api/ocr/extract-credits`에 학점표 PDF를 업로드하여 분석 결과를 JSON으로 받습니다.
+5.  **질문하기**: `POST /api/v1/chat/chat`에 문서 내용에 대한 질문을 보내 답변을 확인합니다.
+6.  **(별도 기능) 학점 분석**: `POST /api/v1/ocr/extract-credits`에 학점표 PDF를 업로드하여 분석 결과를 JSON으로 받습니다.

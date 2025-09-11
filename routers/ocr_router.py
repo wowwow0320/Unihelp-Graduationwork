@@ -9,7 +9,7 @@ from services.ocr_processing_service import ocr_service
 
 router = APIRouter()
 
-@router.post("/ocr/extract-credits", response_model=CreditAnalysisResponse)
+@router.post("/extract-credits", response_model=CreditAnalysisResponse)
 async def extract_credit_info_from_pdf(file: UploadFile = File(...)):
     """
     PDF 성적표 파일을 OCR로 분석하고 JSON을 반환합니다.
