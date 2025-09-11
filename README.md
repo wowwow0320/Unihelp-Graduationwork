@@ -148,7 +148,7 @@ PDF 성적표 파일을 OCR로 분석하여 학점 정보를 JSON으로 반환�
 
 1.  **프로젝트 복제**
     ```bash
-    git clone <repository_url>
+    git clone https://github.com/wowwow0320/Unihelp-Graduationwork
     cd rag_fastapi_project
     ```
 
@@ -168,16 +168,20 @@ PDF 성적표 파일을 OCR로 분석하여 학점 정보를 JSON으로 반환�
     프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 아래 내용을 채워주세요. (`.env.example` 파일을 복사하여 사용)
 
     ```env
-    # OpenAI API 키
-    OPENAI_API_KEY="sk-..."
+    # --- AI Model Selection ---
+    DEFAULT_MODEL="OPENAI"
 
-    # LlamaParse API 키
-    LLAMA_CLOUD_API_KEY="ll-..."
+    # --- API Keys ---
+    OPENAI_API_KEY =
+    LLAMA_CLOUD_API_KEY =
+    GOOGLE_API_KEY = 
 
-    # LangSmith 추적을 위한 API 키 (선택 사항)
-    LANGCHAIN_API_KEY="ls__..."
-    LANGCHAIN_TRACING_V2="true"
-    LANGCHAIN_PROJECT="RAG"
+    # --- LangSmith (Optional) ---  
+    LANGSMITH_TRACING=true
+    LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+    LANGSMITH_API_KEY=
+    LANGCHAIN_PROJECT=
+    HUGGINGFACEHUB_API_TOKEN=
     ```
 
 5.  **기본 DB 컬렉션 설정 (`core/config.py`)**
