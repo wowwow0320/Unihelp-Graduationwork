@@ -120,7 +120,7 @@ class FileProcessorService:
         except FileNotFoundError:
             print(f"❌ 오류: 입력 파일 '{html_path}'을 찾을 수 없습니다.")
             return str(output_txt_path)
-        
+
         blocks = content.split('\n# ')
         blocks = [b.strip() for b in blocks if b.strip()]
         final_sentences = []
@@ -134,26 +134,46 @@ class FileProcessorService:
             
             title, table_html = parts[0].strip(), parts[1].strip()
             try:
-                df_list = pd.read_html(io.StringIO(table_html), header=0, encoding='utf-8')
-                if not df_list: continue
+                # 1. pandas가 테이블을 찾지 못하면 ValueError가 발생하므로 이를 직접 처리.
+                #    또한, io.StringIO 사용 시 encoding 인수는 불필요하므로 제거.
+                df_list = pd.read_html(io.StringIO(table_html), header=0)
+                
+                # 2. df_list가 비어 있는지 확인
+                if not df_list:
+                    continue
+                
                 df = df_list[0]
 
+                # 3. DataFrame이 비어 있는지 확인 (오류 방지 핵심)
+                if df.empty:
+                    continue
+
+                # 이제 df.iloc[0] 접근이 안전함
                 if any('대 학' in str(val) for val in df.iloc[0].values):
                     new_header, df = df.iloc[0], df[1:]
                     df.columns = [f"{str(col).split('.')[0]} {val}" if 'Unnamed' not in str(col) else val for col, val in new_header.items()]
+                
+                # 헤더 처리 후 DataFrame이 다시 비게 될 수 있으므로 재확인
+                if df.empty:
+                    continue
                 
                 for _, row in df.iterrows():
                     row_data = ", ".join([f"{col}: {val}" for col, val in row.items() if pd.notna(val)])
                     sentence = f"제목: {title}, {row_data}"
                     final_sentences.append(sentence)
+            
+            except ValueError:
+                # pandas.read_html이 테이블을 못 찾을 때 발생하는 오류 처리
+                print(f"⚠️ {i+1}번째 블록에서 테이블을 파싱할 수 없어 건너뜁니다.")
             except Exception as e:
-                print(f"⚠️ {i+1}번째 테이블 처리 중 오류 발생 (건너뜁니다): {e}")
+                # 그 외 예기치 못한 오류 처리
+                print(f"⚠️ {i+1}번째 테이블 처리 중 예기치 않은 오류 발생 (건너뜁니다): {e}")
 
         with open(output_txt_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(final_sentences))
         print(f"🎉 RAG-TXT 변환 완료! 총 {len(final_sentences)}개 문장이 '{output_txt_path}'에 저장되었습니다.")
         return str(output_txt_path)
-
+    
     def _preprocess_text(self, text: str) -> str:
         text_without_tables = re.sub(r"<table.*?</table>", "", text, flags=re.DOTALL)
         text = text_without_tables.replace('\r\n', '\n')
