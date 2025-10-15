@@ -1,15 +1,18 @@
 # routers/processing_router.py
 
 import shutil
-import uuid
+import logging
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-# 👇 [수정] 새로 추가한 CollectionListResponse를 가져옵니다.
 from schemas.chat_schema import FullProcessingResponse, CollectionListResponse
 from services.file_processing_service import FileProcessorService
 from services.vector_store_service import vector_store_service
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,7 +31,12 @@ async def process_pdf_full_and_build_db(
     if not collection_name.strip():
         raise HTTPException(status_code=400, detail="collection_name을 반드시 입력해야 합니다.")
 
-    # 🔽 [수정] 파일명을 고유화하는 로직을 제거하고 원본 파일명을 사용합니다.
+    # ✨ 추가된 부분: 업로드된 파일의 크기를 가져옵니다.
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    logger.info(f"PDF 처리 및 DB 구축 요청: {file.filename} (크기: {file_size / 1024:.2f}k)")
+
     file_path = file_processor.upload_dir / file.filename
     
     with open(file_path, "wb") as buffer:
@@ -41,13 +49,16 @@ async def process_pdf_full_and_build_db(
         )
         
         # 2. 생성된 파일들로 벡터 DB 구축
-        print(f"🔧 벡터 DB 구축 시작: 컬렉션='{collection_name}'")
-        vector_store_service.build_from_files(
+        logger.info(f"🔧 벡터 DB 구축 시작: 컬렉션='{collection_name}'")
+        # ✨ 추가된 부분: build_from_files가 추가된 문서 수를 반환하도록 수정했다고 가정합니다.
+        # 만약 해당 함수가 값을 반환하지 않으면, 이 부분은 주석 처리하거나 수정해야 합니다.
+        num_documents = vector_store_service.build_from_files(
             md_path=markdown_path,
             txt_path=rag_text_path,
             collection_name=collection_name
         )
-        
+        logger.info(f"✅ 벡터 DB 구축 완료. 추가된 문서 수: {num_documents}개")
+
         # 3. 모든 작업 완료 후 최종 결과 반환
         return FullProcessingResponse(
             message=f"PDF 파일 처리 및 '{collection_name}' 벡터 DB 구축이 모두 완료되었습니다.",
@@ -58,6 +69,7 @@ async def process_pdf_full_and_build_db(
             rag_text_file=rag_text_path
         )
     except Exception as e:
+        logger.error(f"PDF 처리 또는 DB 구축 중 오류 발생: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
 # 👇 [신규 추가] 저장된 컬렉션 목록을 조회하는 API
@@ -67,7 +79,10 @@ async def list_all_collections():
     현재 Chroma DB에 저장되어 있는 모든 컬렉션의 목록을 조회합니다.
     """
     try:
+        logger.info("저장된 컬렉션 목록 조회 요청 수신")
         collection_names = vector_store_service.list_collections()
+        logger.info(f"조회된 컬렉션: {collection_names}")
         return CollectionListResponse(collections=collection_names)
     except Exception as e:
+        logger.error(f"컬렉션 조회 중 오류 발생: {e}")
         raise HTTPException(status_code=500, detail=f"컬렉션 조회 중 오류 발생: {e}")
