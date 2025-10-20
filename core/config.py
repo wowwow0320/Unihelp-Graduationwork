@@ -14,8 +14,7 @@ class Settings:
     LLAMA_CLOUD_API_KEY = os.getenv("LLAMA_CLOUD_API_KEY")
 
     # ChromaDB 경로
-    # DB_PATH = "./chroma_db_combined"
-    DB_PATH = "./chroma_db_last"
+    DB_PATH = "./chroma_db"
     DEFAULT_DB_COLLECTION_NAME = "2025-2"
 
     # 토크나이저 병렬 처리 비활성화
