@@ -31,10 +31,39 @@ class VectorStoreService:
         char_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         return char_splitter.split_documents(md_header_splits)
 
+
     def _process_table_text_file(self, file_path: str) -> list[Document]:
+        """
+        'Key: Value' 형태의 텍스트 파일을 한 줄씩 읽어,
+        - 원본 텍스트 전체는 page_content에 저장하고,
+        - 파싱된 Key:Value 쌍은 metadata에 동적으로 저장합니다.
+        """
+        documents = []
         with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        return [Document(page_content=line.strip()) for line in lines if line.strip()]
+            for line in f:
+                # 1. 원본 한 줄을 그대로 page_content로 사용합니다.
+                #    이렇게 하면 의미 기반 검색 시 모든 정보를 활용할 수 있습니다.
+                page_content = line.strip()
+                if not page_content:
+                    continue
+
+                try:
+                    # 2. 메타데이터 딕셔너리를 동적으로 생성합니다.
+                    metadata = {}
+                    parts = page_content.split(', ')
+                    for part in parts:
+                        if ': ' in part:
+                            key, value = part.split(': ', 1)
+                            metadata[key.strip()] = value.strip()
+                    
+                    # 3. page_content와 동적으로 생성된 metadata로 Document 객체를 만듭니다.
+                    documents.append(Document(page_content=page_content, metadata=metadata))
+                
+                except Exception as e:
+                    print(f"⚠️ 한 줄을 메타데이터로 파싱하는 중 오류가 발생했습니다 (건너뜁니다): {page_content}")
+                    print(f"   오류 내용: {e}")
+
+        return documents
 
     def build_from_files(self, md_path: str, txt_path: str, collection_name: str):
         db = self._load_db(collection_name)
@@ -76,5 +105,4 @@ class VectorStoreService:
             search_type="mmr",
             search_kwargs={"k": 10, "lambda_mult": 0.9, "fetch_k": 20}
         )
-
 vector_store_service = VectorStoreService()
