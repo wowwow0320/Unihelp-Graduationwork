@@ -6,7 +6,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from core.config import settings
 from models.llm_factory import embedding_model
-from typing import List
+from typing import List, Optional, Dict, Any  # 👈 [수정]
 
 class VectorStoreService:
     def __init__(self):
@@ -99,10 +99,37 @@ class VectorStoreService:
         # 컬렉션 객체 리스트에서 이름만 추출하여 반환
         return [col.name for col in collections] if collections else []
 
-    def get_retriever(self, collection_name: str):
+    # def get_retriever(self, collection_name: str):
+    #     db = self._load_db(collection_name)
+    #     return db.as_retriever(
+    #         search_type="mmr",
+    #         search_kwargs={"k": 10, "lambda_mult": 0.9, "fetch_k": 20}
+    #     )
+    # ⬇️ [수정]
+    # ⬇️ [수정] metadata_filter와 document_filter를 모두 받도록 변경
+    def get_retriever(
+        self, 
+        collection_name: str, 
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        document_filter: Optional[Dict[str, Any]] = None  # 👈 [추가]
+    ):
         db = self._load_db(collection_name)
+        
+        search_kwargs = {
+            "k": 10
+        }
+        search_type = "similarity" 
+            
+        # 1. [추가] 메타데이터 필터 (where)
+        if metadata_filter:
+            search_kwargs["filter"] = metadata_filter
+        
+        # 2. [추가] 문서 본문 필터 (where_document)
+        if document_filter:
+            search_kwargs["where_document"] = document_filter # 👈 [추가]
+
         return db.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": 10, "lambda_mult": 0.9, "fetch_k": 20}
+            search_type=search_type,
+            search_kwargs=search_kwargs
         )
 vector_store_service = VectorStoreService()
