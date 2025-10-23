@@ -1,19 +1,19 @@
 # main.py
 
 from fastapi import FastAPI
-from routers import chat_router, processing_router
-from routers import ocr_router
+from routers import chat_router, processing_router, ocr_router, crawling_router # 👈 crawling_router 임포트 추가
 
 app = FastAPI(
     title="RAG Chatbot API",
-    description="PDF 문서를 기반으로 질문에 답변하는 RAG 챗봇 API입니다.",
+    description="PDF 문서를 기반으로 질문에 답변하는 RAG 챗봇 API 및 크롤링 기능을 제공합니다.", # 설명 업데이트
     version="1.0.0"
 )
 
 # 라우터 등록
-app.include_router(processing_router.router, prefix="/api/v1/processing", tags=["File Processing"])
+app.include_router(processing_router.router, prefix="/api/v1/processing", tags=["File Processing & DB Management"]) # 태그 이름 수정
 app.include_router(chat_router.router, prefix="/api/v1/chat", tags=["Chat"])
-app.include_router(ocr_router.router, prefix="/api/v1/ocr", tags=["OCR"])
+app.include_router(ocr_router.router, prefix="/api/v1/ocr", tags=["OCR Processing"]) # 태그 이름 수정
+app.include_router(crawling_router.router, prefix="/api/v1/crawl", tags=["Crawling"]) # 👈 crawling_router 등록
 
 @app.get("/", tags=["Root"])
 async def read_root():

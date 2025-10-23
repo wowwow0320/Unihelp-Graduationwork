@@ -1,7 +1,7 @@
 # /schemas/chat_schema.py
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class ChatRequest(BaseModel):
     question: str
@@ -35,3 +35,17 @@ class CreditAnalysisResponse(BaseModel):
     졸업학점: Optional[int] = None
     취득학점: Optional[int] = None
     편입인정학점: Optional[int] = None
+
+class SpringSendResult(BaseModel):
+    notice_title: str
+    status: str # "성공" or "실패"
+    spring_status_code: Optional[int] = None
+    error_message: Optional[str] = None
+
+class CrawlSendSummaryResponse(BaseModel):
+    message: str
+    total_crawled: int
+    successful_sends: int
+    failed_sends: int
+    send_results: List[SpringSendResult]
+    
