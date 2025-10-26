@@ -4,23 +4,22 @@ import shutil
 import os
 import httpx
 import logging
-import json # 👈 json 모듈 추가
+import json
 from typing import List, Tuple, Optional, Dict
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from core.config import settings
+from core.config import settings # 👈 settings 임포트 확인
 from services.crawling_service import crawling_service
-# 👇 [수정] 응답 스키마 변경
 from schemas.chat_schema import CrawlSendSummaryResponse, SpringSendResult
+from datetime import datetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# 👇 [수정] 엔드포인트 이름 변경 (하는 일이 바뀌었으므로)
 @router.post("/crawl-and-send-all-to-spring", response_model=CrawlSendSummaryResponse)
 async def crawl_and_send_all_to_spring(background_tasks: BackgroundTasks):
     """
     용인대 공지사항을 크롤링하여, 각 게시글과 해당 첨부파일을
-    Spring 서버로 개별 `multipart/form-data` 전송합니다.
+    Spring 서버로 개별 `multipart/form-data` 전송합니다. (API 키 인증 포함)
     """
     crawled_data: Optional[List[Dict]] = None
     temp_dir: str = ""
@@ -29,10 +28,9 @@ async def crawl_and_send_all_to_spring(background_tasks: BackgroundTasks):
     failed_sends = 0
 
     try:
-        # 1. 크롤링 실행 (공지 데이터 + 첨부파일 경로 리스트 포함)
+        # 1. 크롤링 실행
         crawled_data, temp_dir = await crawling_service.crawl_yongin_notices_with_files()
 
-        # 백그라운드 작업으로 임시 디렉터리 삭제 예약
         if temp_dir and os.path.exists(temp_dir):
             background_tasks.add_task(shutil.rmtree, temp_dir, ignore_errors=True)
             logger.info(f"임시 디렉터리 [{temp_dir}] 삭제 예약됨.")
@@ -44,41 +42,68 @@ async def crawl_and_send_all_to_spring(background_tasks: BackgroundTasks):
         total_crawled = len(crawled_data)
         logger.info(f"총 {total_crawled}개의 게시글 크롤링 완료. Spring 서버로 전송 시작...")
 
+        # ▼▼▼ [수정] 1: Spring에 보낼 API 키 헤더 생성 ▼▼▼
+        # Spring ApiKeyAuthFilter가 검사할 헤더
+        headers = {
+            "X-Auth-Token": settings.CRAWLER_SECRET_KEY
+        }
+        # ▲▲▲ [수정] 1 ▲▲▲
+
         # 2. 각 게시글별로 Spring 서버에 전송
-        async with httpx.AsyncClient(timeout=60.0) as client: # 타임아웃 1분
+        async with httpx.AsyncClient(timeout=60.0) as client:
             for i, notice in enumerate(crawled_data):
-                notice_title = notice.get('제목', f'게시글 {i+1}')
+                notice_title = notice.get('title', f'게시글 {i+1}')
                 logger.info(f"-> {i+1}/{total_crawled}번째 게시글 전송 시도: {notice_title}")
 
                 files_to_send = []
                 file_objs_to_close = []
                 
-                # 'data' 파트 (JSON): attachment_full_paths 제외하고 전송
-                notice_data_for_spring = notice.copy()
-                attachment_full_paths = notice_data_for_spring.pop('attachment_full_paths', []) # 경로 추출 및 제거
-                
-                # 딕셔너리를 JSON 문자열로 변환
-                notice_json_str = json.dumps(notice_data_for_spring, ensure_ascii=False)
-                files_to_send.append(('data', (None, notice_json_str, 'application/json')))
+                # 'dto' 파트 (JSON) 생성
+                dto_part = {
+                    "title": notice.get("title"),
+                    "text": notice.get("text"),
+                    "department": notice.get("department"),
+                    "originalCreatedAt": datetime.now().isoformat()
+                }
+                dto_json_str = json.dumps(dto_part, ensure_ascii=False)
+                files_to_send.append(('dto', (None, dto_json_str, 'application/json')))
 
-                # 'files' 파트 (첨부파일)
-                for file_path in attachment_full_paths:
+                # 'images' 파트 (이미지 파일)
+                image_paths = notice.get('image_full_paths', [])
+                for file_path in image_paths:
                     if os.path.exists(file_path):
                         try:
                             f_obj = open(file_path, 'rb')
                             file_objs_to_close.append(f_obj)
-                            files_to_send.append(('files', (os.path.basename(file_path), f_obj, 'application/octet-stream')))
+                            files_to_send.append(('images', (os.path.basename(file_path), f_obj, 'application/octet-stream')))
+                        except Exception as file_open_err:
+                            logger.error(f"   - 이미지 파일 열기 실패: {file_path}, 오류: {file_open_err}")
+                    else:
+                        logger.warning(f"   - 이미지 파일 경로 없음: {file_path}")
+                
+                # 'attachments' 파트 (기타 첨부파일)
+                attachment_paths = notice.get('attachment_full_paths', [])
+                for file_path in attachment_paths:
+                    if os.path.exists(file_path):
+                        try:
+                            f_obj = open(file_path, 'rb')
+                            file_objs_to_close.append(f_obj)
+                            files_to_send.append(('attachments', (os.path.basename(file_path), f_obj, 'application/octet-stream')))
                         except Exception as file_open_err:
                             logger.error(f"   - 첨부파일 열기 실패: {file_path}, 오류: {file_open_err}")
                     else:
-                         logger.warning(f"   - 첨부파일 경로 없음: {file_path}")
+                        logger.warning(f"   - 첨부파일 경로 없음: {file_path}")
 
                 # Spring 서버에 POST 요청
                 try:
+                    # ▼▼▼ [수정] 2: 'headers=headers' 추가 ▼▼▼
                     response = await client.post(
-                        settings.SPRING_SERVER_UPLOAD_URL,
-                        files=files_to_send # files 인자로 전달
+                        settings.SPRING_SERVER_UPLOAD_URL, # "http://localhost:8080/route/notices/school"
+                        files=files_to_send,
+                        headers=headers # 👈 API 키 헤더 적용
                     )
+                    # ▲▲▲ [수정] 2 ▲▲▲
+                    
                     response.raise_for_status()
                     
                     send_results.append(SpringSendResult(
@@ -131,14 +156,11 @@ async def crawl_and_send_all_to_spring(background_tasks: BackgroundTasks):
         )
 
     except HTTPException:
-        # 이미 처리된 HTTP 예외는 그대로 다시 발생시킴
         raise
     except Exception as e:
-        # 크롤링 자체에서 발생한 오류 (로그인 실패 등)
         logger.error(f"크롤링 또는 전송 프로세스 중 예기치 않은 오류 발생: {e}", exc_info=True)
-        # 임시 디렉터리 정리 (백그라운드 작업과 별개로 예외 발생 시 즉시 시도)
         if temp_dir and os.path.exists(temp_dir):
             try: shutil.rmtree(temp_dir)
             except Exception as rm_err: logger.error(f"오류 발생 후 임시 디렉터리 정리 실패: {rm_err}")
-                
+            
         raise HTTPException(status_code=500, detail=f"크롤링/전송 실패: {str(e)}")

@@ -8,7 +8,7 @@ import re
 import shutil
 import tempfile
 import asyncio
-import json # 👈 json 모듈 추가
+import json
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -24,25 +24,26 @@ from core.config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# [추가] 이미지 확장자 정의
+IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
+
 class CrawlingService:
     def __init__(self):
         self.USER_ID = settings.CROWLING_ID
         self.USER_PW = settings.CROWLING_PW
         self.max_posts_to_scrape = 10
 
-    # 👇 [수정] 반환 타입 힌트 변경: List[Dict]가 공지 데이터 + 파일 경로 포함
     async def crawl_yongin_notices_with_files(self) -> Tuple[Optional[List[Dict]], str]:
         """
         크롤링 후, 각 공지사항 데이터와 해당 첨부파일 경로 리스트가 포함된
-        딕셔너리 리스트와 임시 디렉토리 경로를 반환합니다.
+        딕셔셔너리 리스트와 임시 디렉토리 경로를 반환합니다.
         반환값: (notice_data_with_paths, temp_dir_path)
         """
         result = await asyncio.to_thread(self._run_crawl_logic_for_send)
         return result
 
-    # 👇 [수정] 함수 이름 및 로직 변경
     def _run_crawl_logic_for_send(self) -> Tuple[Optional[List[Dict]], str]:
-        """크롤링을 수행하고, 각 공지 딕셔너리에 첨부파일 전체 경로를 포함시켜 반환합니다."""
+        """크롤링을 수행하고, 각 공지 딕셔너리에 이미지/첨부파일 전체 경로를 포함시켜 반환합니다."""
 
         save_dir = tempfile.mkdtemp(prefix="yongin_crawl_")
         download_dir = os.path.join(save_dir, 'downloads')
@@ -81,7 +82,6 @@ class CrawlingService:
             shutil.rmtree(save_dir)
             raise Exception(f"WebDriver 초기화 실패: {e}")
 
-        # 👇 [수정] 데이터를 바로 딕셔너리 리스트로 저장
         crawled_data_with_paths: List[Dict] = []
 
         try:
@@ -110,7 +110,10 @@ class CrawlingService:
 
             for i in range(num_to_scrape):
                 notice_info = {} # 현재 게시글 정보 저장용
-                attachment_full_paths = [] # 현재 게시글 첨부파일 경로 저장용
+                
+                # [수정] 이미지/첨부파일 경로 리스트 분리
+                image_full_paths = []
+                attachment_full_paths = []
 
                 all_posts = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'tr.hand')))
                 post_to_click = all_posts[i]
@@ -124,43 +127,87 @@ class CrawlingService:
                 html = driver.page_source
                 soup = BeautifulSoup(html, 'html.parser')
 
-                # 데이터 추출
-                title = re.sub(r"^\s*\[.*?\]\s*", "", soup.find('th', 'bbs_title').get_text(strip=True))
+                # --- [수정] 데이터 추출 및 견고한 파싱 ---
+                
+                # 1. 제목 (Title)
+                title_element = soup.find('th', 'bbs_title')
+                title_text = title_element.get_text(strip=True) if title_element else ""
+                title = re.sub(r"^\s*\[.*?\]\s*", "", title_text) # [공지] 태그 제거
+
                 meta_tag = soup.find('td', 'bbs_date')
-                writer = meta_tag.contents[0].strip().split(':')[1].strip()
+                
+                # 2. 작성자 (Writer -> Department)
+                writer = "" # 기본값 초기화
+                try:
+                    # 2-1. '작성자: 장학과' 텍스트 노드 파싱 시도
+                    if meta_tag and meta_tag.contents:
+                        writer_text_node = meta_tag.contents[0].strip()
+                        if ":" in writer_text_node:
+                            writer = writer_text_node.split(':', 1)[1].strip()
+                except Exception as e:
+                    logger.warning(f"'{title}' 공지에서 작성자 파싱 중 오류: {e}")
+
+                # 2-2. 파싱 실패 시, 제목에서 힌트 찾기 (예: [취창업지원센터])
+                if not writer:
+                    try:
+                        match = re.search(r"\[(.*?)\]", title_text) # [공지] 태그 제거 전 원본 제목
+                        if match:
+                            potential_writer = match.group(1).strip()
+                            if 3 < len(potential_writer) < 20 and not potential_writer.isdigit():
+                                writer = potential_writer
+                                logger.info(f"'{title}' 공지에서 작성자를 제목('[ ]')에서 추출: {writer}")
+                    except Exception as e:
+                         logger.warning(f"'{title}' 공지 제목에서 작성자 추출 중 오류: {e}")
+                        
+                # 2-3. [최후의 보루] 그래도 없으면 기본값 할당
+                if not writer:
+                    # (중요) "학교 본부"라는 User가 Spring DB에 반드시 존재해야 합니다.
+                    writer = "학교 본부" 
+                    logger.warning(f"'{title}' 공지에서 작성자를 찾을 수 없어 기본값 '학교 본부'를 할당합니다.")
+                
+                # 3. 작성일 (Date) 및 본문 (Content)
                 date = meta_tag.find('span', class_='mr100').get_text(strip=True).split(':')[1].strip()
                 content = soup.find('td', 'bbs_content').get_text(strip=True)
 
-                notice_info['제목'] = title
-                notice_info['작성자'] = writer
-                notice_info['작성일'] = date
-                notice_info['내용'] = content
+                # Spring DTO에 맞게 Key 이름 변경
+                notice_info['title'] = title
+                notice_info['department'] = writer # 'writer'는 이제 절대 비어있지 않음
+                notice_info['text'] = content
+                notice_info['original_date'] = date # 참고용 원본 작성일
+
+                # --- [수정 완료] ---
 
                 # 첨부파일 다운로드 및 경로 저장
-                post_attachment_filenames = [] # 현재 게시글의 파일명만 (JSON 저장용)
+                post_attachment_filenames = [] 
                 try:
                     file_elements = driver.find_elements(By.CSS_SELECTOR, "td.bbs_file a")
                     if file_elements:
                         for file_element in file_elements:
                             file_name = file_element.text.strip()
-                            post_attachment_filenames.append(file_name) # 파일명 리스트 추가
+                            post_attachment_filenames.append(file_name)
                             
-                            # 다운로드 실행
                             driver.execute_script("arguments[0].click();", file_element)
                             logger.info(f" - 다운로드 실행: {file_name}")
                             time.sleep(3) # 다운로드 대기
 
-                            # 👇 다운로드된 파일의 전체 경로 생성 및 저장
                             full_file_path = os.path.join(download_dir, file_name)
-                            if os.path.exists(full_file_path): # 다운로드가 실제로 완료되었는지 확인
-                                attachment_full_paths.append(full_file_path)
+                            if os.path.exists(full_file_path):
+                                
+                                # [수정] 파일 확장자로 이미지/첨부파일 분리
+                                if file_name.lower().endswith(IMAGE_EXTENSIONS):
+                                    image_full_paths.append(full_file_path)
+                                else:
+                                    attachment_full_paths.append(full_file_path)
                             else:
                                 logger.warning(f" - 파일 다운로드 실패 또는 시간 부족: {file_name}")
                 except Exception as e:
                     logger.error(f"첨부파일 처리 중 오류: {e}")
 
-                notice_info['첨부파일'] = post_attachment_filenames # JSON에는 파일명 리스트 저장
-                notice_info['attachment_full_paths'] = attachment_full_paths # 내부 처리용 전체 경로
+                notice_info['original_filenames'] = post_attachment_filenames # (참고용)
+                
+                # [수정] 분리된 리스트를 딕셔너리에 저장
+                notice_info['image_full_paths'] = image_full_paths
+                notice_info['attachment_full_paths'] = attachment_full_paths
 
                 crawled_data_with_paths.append(notice_info) # 최종 리스트에 추가
 
@@ -169,7 +216,6 @@ class CrawlingService:
 
         except Exception as e:
             logger.error(f"크롤링 중 오류 발생: {e}")
-            # 오류 발생 시에도 임시 디렉토리 경로는 반환해야 함 (정리 목적)
             return None, save_dir
         finally:
             if driver:
@@ -178,23 +224,8 @@ class CrawlingService:
             file_handler.close()
 
         if crawled_data_with_paths:
-            # 👇 [수정] JSON 파일 생성 로직 추가 (Spring 전송 시 필요)
-            json_data_for_spring = []
-            for item in crawled_data_with_paths:
-                 # Spring으로 보낼 데이터에서는 attachment_full_paths 제외
-                item_copy = item.copy()
-                del item_copy['attachment_full_paths']
-                json_data_for_spring.append(item_copy)
-            
-            # 임시 디렉토리에 전체 데이터를 담은 data.json 저장 (옵션)
-            try:
-                json_path = os.path.join(save_dir, 'crawled_data.json')
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(json_data_for_spring, f, ensure_ascii=False, indent=4)
-                logger.info("크롤링 데이터 요약 JSON 저장 완료.")
-            except Exception as json_err:
-                logger.error(f"크롤링 데이터 요약 JSON 저장 실패: {json_err}")
-                
+            # [수정] 불필요한 JSON 저장 로직 삭제
+            logger.info("크롤링 데이터 수집 및 파일 다운로드 완료.")
             return crawled_data_with_paths, save_dir
         else:
             logger.info("수집된 데이터가 없습니다.")

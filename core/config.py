@@ -17,6 +17,8 @@ class Settings:
     CROWLING_PW = os.getenv("CROWLING_PW")
     
     SPRING_SERVER_UPLOAD_URL = os.getenv("SPRING_SERVER_UPLOAD_URL")
+    # Spring (application.properties)과 동일한 키 값
+    CRAWLER_SECRET_KEY = os.getenv("CRAWLER_SECRET_KEY")
 
     # ChromaDB 경로
     DB_PATH = "./chroma_db"
