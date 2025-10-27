@@ -23,7 +23,7 @@ scheduler = AsyncIOScheduler()
 @scheduler.scheduled_job(
     CronTrigger(
         hour="8,14,18,23",  # 요청하신 시간: 오전 8시, 14시, 18시, 23시
-        minute="17",
+        minute="50",
         timezone="Asia/Seoul" # 한국 시간 기준
     ),
     id="crawl_yongin_notices_job",
