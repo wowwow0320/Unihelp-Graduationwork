@@ -1,15 +1,17 @@
-# /main.py (또는 FastAPI 앱을 생성하는 메인 파일)
+# /main.py
 
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-import uvicorn # uvicorn 실행용 (선택 사항)
+import uvicorn
 
-# [중요] 1. 라우터 및 스케줄링할 함수 임포트
-from routers.crawling_router import router as crawling_router
-from routers.crawling_router import run_crawl_and_send_logic # 👈 2. 분리한 함수 임포트
+# [중요] 1. 기존 라우터들 임포트
+from routers import chat_router, processing_router, ocr_router, crawling_router
+
+# [중요] 2. 스케줄링할 함수 임포트
+from routers.crawling_router import run_crawl_and_send_logic
 
 # 로거 설정
 logging.basicConfig(level=logging.INFO)
@@ -20,9 +22,9 @@ scheduler = AsyncIOScheduler()
 
 @scheduler.scheduled_job(
     CronTrigger(
-        hour="8,14,18,23",  # 👈 요청한 시간: 오전 8시, 14시, 18시, 23시
+        hour="8,14,18,23",  # 요청하신 시간: 오전 8시, 14시, 18시, 23시
         minute="0",
-        timezone="Asia/Seoul" # 👈 한국 시간 기준
+        timezone="Asia/Seoul" # 한국 시간 기준
     ),
     id="crawl_yongin_notices_job",
     name="용인대 공지사항 크롤링 및 전송"
@@ -33,12 +35,13 @@ async def scheduled_crawl_job():
     """
     logger.info("===== ⏰ 스케줄된 크롤링 작업 시작 =====")
     try:
-        result = await run_crawl_and_send_logic() # 👈 4. 분리한 함수 직접 호출
+        result = await run_crawl_and_send_logic() # 분리한 크롤링 함수 호출
         logger.info(f"===== ✅ 스케줄된 크롤링 작업 완료: {result.message} =====")
     except Exception as e:
         logger.error(f"===== ❌ 스케줄된 크롤링 작업 중 심각한 오류 발생: {e} =====", exc_info=True)
 
-# [중요] 5. FastAPI 앱 생명주기(lifespan) 이벤트를 사용하여 스케줄러 시작/종료
+
+# [중요] 4. FastAPI 앱 생명주기(lifespan) 이벤트 정의
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 앱 시작 시
@@ -49,16 +52,27 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI 앱 종료... 스케줄러를 종료합니다.")
     scheduler.shutdown()
 
-# FastAPI 앱 인스턴스 생성 (lifespan 적용)
-app = FastAPI(lifespan=lifespan)
+# [중요] 5. FastAPI 앱 생성 시 'lifespan' 적용
+app = FastAPI(
+    title="RAG Chatbot API",
+    description="PDF 문서를 기반으로 질문에 답변하는 RAG 챗봇 API 및 크롤링 기능을 제공합니다.",
+    version="1.0.0",
+    lifespan=lifespan  # 👈 스케줄러 생명주기 적용
+)
 
-# 라우터 포함
-app.include_router(crawling_router, prefix="/api") # 라우터 경로 예시
+# [중요] 6. 기존 라우터들 모두 등록
+app.include_router(processing_router.router, prefix="/api/v1/processing", tags=["File Processing & DB Management"])
+app.include_router(chat_router.router, prefix="/api/v1/chat", tags=["Chat"])
+app.include_router(ocr_router.router, prefix="/api/v1/ocr", tags=["OCR Processing"])
+app.include_router(crawling_router.router, prefix="/api/v1/crawl", tags=["Crawling"]) # 👈 크롤링 라우터 prefix 확인하세요
 
-@app.get("/")
-def read_root():
-    return {"message": "크롤러 API 서버가 실행 중입니다."}
+@app.get("/", tags=["Root"])
+async def read_root():
+    """
+    루트 엔드포인트. API 서버가 실행 중인지 확인합니다.
+    """
+    return {"message": "RAG Chatbot API (with Crawling Scheduler) is running."}
 
-# 서버 실행 (예시)
+# Uvicorn으로 앱 실행 (터미널에서 직접 실행 시)
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
