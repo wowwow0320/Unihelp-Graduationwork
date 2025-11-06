@@ -116,7 +116,7 @@ class VectorStoreService:
         db = self._load_db(collection_name)
         
         search_kwargs = {
-            "k": 10
+            "k": 20
         }
         search_type = "similarity" 
             
