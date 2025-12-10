@@ -19,12 +19,15 @@ async def get_chat_response(request: ChatRequest):
     if not request.question:
         raise HTTPException(status_code=400, detail="질문을 입력해주세요.")
     
-    # ✨ 추가된 부분: 질문의 크기를 로그로 출력합니다.
+    # 질문의 크기를 로그로 출력합니다.
     question_size = len(request.question.encode('utf-8'))
     logger.info(f"수신된 질문 크기: {question_size / 1024:.2f}k")
     
     try:
-        answer = chat_service.get_answer(request.question)
+        # ✨ [수정됨] 비동기 서비스 호출
+        # chat_service.get_answer() -> await chat_service.get_answer()
+        # 서비스가 작업을 완료할 때까지 기다리되, 서버(Event Loop)는 차단하지 않음
+        answer = await chat_service.get_answer(request.question)
         return ChatResponse(answer=answer)
     except Exception as e:
         logger.error(f"답변 생성 중 오류 발생: {e}")
