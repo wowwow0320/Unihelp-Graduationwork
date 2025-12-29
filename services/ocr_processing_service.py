@@ -67,6 +67,7 @@ class OcrProcessingService:
             "편입인정학점": None
         }
         lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
+        print("OCR 추출된 라인들:", lines)
 
         for i, line in enumerate(lines):
             if "교양필수" in line:
