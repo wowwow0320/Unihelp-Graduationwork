@@ -1,137 +1,156 @@
 # /services/ocr_processing_service.py
 
-import json
-import re
-from pathlib import Path
-
-import easyocr
 import fitz  # PyMuPDF
-import numpy as np
 import pdfplumber
-from PIL import Image
-
+from pathlib import Path
 
 class OcrProcessingService:
     def __init__(self, upload_dir: str = "uploads"):
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
-        # easyocr 리더는 초기화 시 시간이 걸리므로 서버 시작 시 한 번만 실행합니다.
-        print("EasyOCR 리더를 초기화합니다... (ko, en)")
-        self.reader = easyocr.Reader(['ko', 'en'])
+        # EasyOCR 제거로 인해 초기화 과정이 매우 가벼워졌습니다.
+        print("✅ OcrProcessingService 초기화 완료 (PDF 좌표 기반 모드)")
 
-    def _extract_table_image_from_pdf(self, pdf_path: str, keyword="이수학점 비교") -> Image.Image | None:
-        """PDF 파일에서 키워드를 찾아 근처 테이블 영역을 이미지로 추출합니다."""
-        print(f"'{pdf_path}'에서 '{keyword}' 테이블 검색 중...")
-        try:
-            pdf_document = fitz.open(pdf_path)
-        except Exception as e:
-            print(f"❌ PDF 파일을 열 수 없습니다: {e}")
-            return None
-
-        for page_number in range(len(pdf_document)):
-            page = pdf_document[page_number]
-            text_instances = page.search_for(keyword)
-
-            if text_instances:
-                print(f"✅ 페이지 {page_number + 1}에서 키워드 발견.")
-                keyword_rect = text_instances[0]
-                pix = page.get_pixmap(dpi=300)
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-                with pdfplumber.open(pdf_path) as plumber_pdf:
-                    plumber_page = plumber_pdf.pages[page_number]
-                    if plumber_page.extract_tables():
-                        print("✅ 페이지 내 테이블 확인 완료.")
-                        x0, y0, x1, y1 = keyword_rect
-                        crop_rect = (page.rect.width - 230, y1 - 20, page.rect.width, y1 + 330)
-                        scale = pix.width / page.rect.width
-                        crop_pixel_rect = tuple(int(val * scale) for val in crop_rect)
-                        cropped_img = img.crop(crop_pixel_rect)
-                        print("✅ 테이블 이미지 추출 완료.")
-                        return cropped_img
-
-        print(f"❌ '{keyword}' 키워드 또는 테이블을 찾을 수 없습니다.")
-        return None
-
-    def _parse_ocr_to_json(self, text: str) -> dict:
-        """OCR로 추출된 텍스트를 분석하여 지정된 JSON 형식으로 변환합니다."""
-        print("OCR 텍스트 파싱 중...")
-        data_template = {
-            "교양 필수": {"이수기준": None, "취득학점": None},
-            "기초전공": {"이수기준": None, "취득학점": None},
-            "단일전공자 최소전공이수학점": {"이수기준": None, "취득학점": None},
-            "복수,부,연계전공 기초전공": {"이수기준": None, "취득학점": None},
-            "복수,부,연계전공 최소전공이수학점": {"이수기준": None, "취득학점": None},
-            "졸업학점": None,
-            "취득학점": None,
-            "편입인정학점": None
-        }
-        lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
-        print("OCR 추출된 라인들:", lines)
-
-        for i, line in enumerate(lines):
-            if "교양필수" in line:
-                if i + 2 < len(lines) and lines[i+1].isdigit() and lines[i+2].isdigit():
-                    data_template["교양 필수"]["이수기준"] = int(lines[i+1])
-                    data_template["교양 필수"]["취득학점"] = int(lines[i+2])
-                    break
-        for i, line in enumerate(lines):
-            if "단일전공자" in line:
-                if i + 3 < len(lines) and lines[i+1].isdigit() and lines[i+2].isdigit() and "최소전공이수학점" in lines[i+3]:
-                    data_template["단일전공자 최소전공이수학점"]["이수기준"] = int(lines[i+1])
-                    data_template["단일전공자 최소전공이수학점"]["취득학점"] = int(lines[i+2])
-                    break
-        b_indices = [i for i, line in enumerate(lines) if "복수" in line or "연계" in line]
-        if len(b_indices) >= 1:
-            idx1 = b_indices[0]
-            if idx1 + 3 < len(lines) and lines[idx1+1].isdigit() and lines[idx1+2].isdigit() and "기초전공" in lines[idx1+3]:
-                data_template["복수,부,연계전공 기초전공"]["이수기준"] = int(lines[idx1+1])
-                data_template["복수,부,연계전공 기초전공"]["취득학점"] = int(lines[idx1+2])
-        if len(b_indices) >= 2:
-            idx2 = b_indices[1]
-            if idx2 + 3 < len(lines) and lines[idx2+1].isdigit() and lines[idx2+2].isdigit() and "최소전공이수학점" in lines[idx2+3]:
-                data_template["복수,부,연계전공 최소전공이수학점"]["이수기준"] = int(lines[idx2+1])
-                data_template["복수,부,연계전공 최소전공이수학점"]["취득학점"] = int(lines[idx2+2])
-        for i, line in enumerate(lines):
-            if "기초전공" in line and (i == 0 or "복수" not in lines[i-1]):
-                if i + 2 < len(lines) and lines[i+1].isdigit() and lines[i+2].isdigit():
-                    data_template["기초전공"]["이수기준"] = int(lines[i+1])
-                    data_template["기초전공"]["취득학점"] = int(lines[i+2])
-                    break
-        for i, line in enumerate(lines):
-            if "졸업학점" in line:
-                if i + 1 < len(lines) and lines[i+1].isdigit():
-                    data_template["졸업학점"] = int(lines[i+1])
-            elif "취득학 점" in line:
-                if i + 1 < len(lines) and lines[i+1].isdigit():
-                    data_template["취득학점"] = int(lines[i+1])
-            elif "편입인정학점" in line:
-                if i + 1 < len(lines) and lines[i+1].isdigit():
-                    data_template["편입인정학점"] = int(lines[i+1])
-                else:
-                    data_template["편입인정학점"] = 0
-        print("ocr 결과", data_template)
-        print("✅ 파싱 완료.")
-        return data_template
-    
     def process_pdf_for_credits(self, pdf_path: str) -> dict:
-        """PDF 학점표를 받아 OCR 처리 후 JSON 데이터를 반환하는 메인 파이프라인입니다."""
-        table_image = self._extract_table_image_from_pdf(pdf_path)
-        if table_image is None:
+        """
+        PDF 학점표를 받아 좌표 기반으로 데이터를 정밀 추출하여 dict를 반환합니다.
+        Router에서 호출하는 메인 진입점입니다.
+        """
+        # 1. '이수학점 비교' 표의 좌표(Bounding Box) 찾기
+        bbox, page_index = self._find_table_coordinates(pdf_path, keyword="이수학점 비교")
+        
+        if not bbox:
+            # Router의 404 처리를 위해 ValueError 발생
             raise ValueError("PDF에서 '이수학점 비교' 키워드나 관련 테이블을 찾을 수 없습니다.")
 
-        print("EasyOCR로 텍스트 추출 실행 중...")
-        try:
-            img_np = np.array(table_image)
-            ocr_result = self.reader.readtext(img_np, detail=0)
-            ocr_text = "\n".join(ocr_result)
-            print("✅ OCR 텍스트 추출 완료.")
-        except Exception as e:
-            print(f"❌ EasyOCR 실행 중 오류 발생: {e}")
-            raise e
-
-        final_data = self._parse_ocr_to_json(ocr_text)
+        # 2. 해당 좌표의 데이터를 텍스트/테이블로 추출
+        extracted_rows = self._extract_data_from_bbox(pdf_path, bbox, page_index)
+        
+        # 3. 요청된 JSON 포맷으로 파싱
+        final_data = self._parse_rows_to_json(extracted_rows)
+        
         return final_data
 
+    def _find_table_coordinates(self, pdf_path: str, keyword: str):
+        """PyMuPDF를 사용하여 키워드 좌표를 기반으로 테이블 영역을 계산합니다."""
+        doc = fitz.open(pdf_path)
+        for page_idx, page in enumerate(doc):
+            text_instances = page.search_for(keyword)
+            if text_instances:
+                inst = text_instances[0]  # 첫 번째 발견된 키워드
+                
+                # 좌표 계산 로직
+                # (페이지 우측 영역 - 230, 키워드 위쪽 - 20, 페이지 끝, 키워드 아래 + 330)
+                x0 = page.rect.width - 230
+                top = inst.y1 - 20
+                x1 = page.rect.width
+                bottom = inst.y1 + 330
+                
+                doc.close()
+                return (x0, top, x1, bottom), page_idx
+        
+        doc.close()
+        return None, -1
 
+    def _extract_data_from_bbox(self, pdf_path: str, bbox, page_index):
+        """pdfplumber로 특정 영역(bbox)의 텍스트를 줄 단위로 추출합니다."""
+        with pdfplumber.open(pdf_path) as pdf:
+            page = pdf.pages[page_index]
+            cropped_page = page.crop(bbox)
+            
+            # 테이블 구조로 추출 시도 (가장 정확함)
+            table = cropped_page.extract_table()
+            
+            if table:
+                cleaned_rows = []
+                for row in table:
+                    # None 값 제거 및 공백/줄바꿈 정리
+                    cleaned_row = [str(cell).replace('\n', '').replace(' ', '') for cell in row if cell is not None]
+                    if cleaned_row:
+                        cleaned_rows.append(cleaned_row)
+                return cleaned_rows
+            
+            # 테이블 인식이 안 될 경우 텍스트 라인으로 추출 (Fallback)
+            text = cropped_page.extract_text()
+            return [line.split() for line in text.split('\n') if line.strip()]
+
+    def _parse_rows_to_json(self, rows) -> dict:
+        """
+        비정형 표(셀 병합 등)에 대응하기 위해 행별로 숫자만 추출하여 매핑하는 로직입니다.
+        """
+        print("📊 데이터 정밀 파싱 중...")
+        
+        data_template = {
+            "교양 필수": {"이수기준": 0, "취득학점": 0},
+            "기초전공": {"이수기준": 0, "취득학점": 0},
+            "단일전공자 최소전공이수학점": {"이수기준": 0, "취득학점": 0},
+            "복수,부,연계전공 기초전공": {"이수기준": 0, "취득학점": 0},
+            "복수,부,연계전공 최소전공이수학점": {"이수기준": 0, "취득학점": 0},
+            "졸업학점": 0,
+            "취득학점": 0, 
+            "편입인정학점": 0
+        }
+
+        # 텍스트 정리 헬퍼
+        def clean_text(text):
+            return str(text).replace(" ", "").replace("\n", "").strip()
+
+        for row in rows:
+            # 1. 행 전체 텍스트 합치기 (키워드 검색용)
+            full_row_text = clean_text("".join([str(cell) for cell in row if cell]))
+            
+            # 2. 행에서 '숫자'만 추출 (순서 유지)
+            nums = []
+            for cell in row:
+                if cell:
+                    s = str(cell).strip()
+                    if s.isdigit():
+                        nums.append(int(s))
+
+            if not nums:
+                continue
+
+            # --- 조건별 매핑 ---
+
+            # 1. 교양필수
+            if "교양필수" in full_row_text and len(nums) >= 2:
+                data_template["교양 필수"]["이수기준"] = nums[0]
+                data_template["교양 필수"]["취득학점"] = nums[1]
+
+            # 2. 기초전공 (복수전공 제외)
+            elif "기초전공" in full_row_text and "복수" not in full_row_text and len(nums) >= 2:
+                data_template["기초전공"]["이수기준"] = nums[0]
+                data_template["기초전공"]["취득학점"] = nums[1]
+
+            # 3. 단일전공자
+            elif "단일전공자" in full_row_text and len(nums) >= 2:
+                data_template["단일전공자 최소전공이수학점"]["이수기준"] = nums[0]
+                data_template["단일전공자 최소전공이수학점"]["취득학점"] = nums[1]
+
+            # 4. 복수/부/연계전공 기초전공
+            elif ("복수" in full_row_text or "연계" in full_row_text) and "기초전공" in full_row_text and len(nums) >= 2:
+                data_template["복수,부,연계전공 기초전공"]["이수기준"] = nums[0]
+                data_template["복수,부,연계전공 기초전공"]["취득학점"] = nums[1]
+
+            # 5. 복수/부/연계전공 최소전공
+            elif ("복수" in full_row_text or "연계" in full_row_text) and "최소전공" in full_row_text and len(nums) >= 2:
+                data_template["복수,부,연계전공 최소전공이수학점"]["이수기준"] = nums[0]
+                data_template["복수,부,연계전공 최소전공이수학점"]["취득학점"] = nums[1]
+
+            # 6. 졸업학점
+            elif "졸업학점" in full_row_text and len(nums) >= 1:
+                data_template["졸업학점"] = nums[0]
+
+            # 7. 총 취득학점
+            elif ("취득학점" in full_row_text or "계" in full_row_text) and "교양" not in full_row_text and "전공" not in full_row_text:
+                if len(nums) >= 1:
+                    data_template["취득학점"] = nums[0]
+
+            # 8. 편입인정학점
+            elif "편입" in full_row_text and len(nums) >= 1:
+                data_template["편입인정학점"] = nums[0]
+
+        return data_template
+
+# 싱글톤 인스턴스 생성 (Router에서 import하여 사용)
 ocr_service = OcrProcessingService()
