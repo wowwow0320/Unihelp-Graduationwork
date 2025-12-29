@@ -109,6 +109,7 @@ class OcrProcessingService:
                     data_template["편입인정학점"] = int(lines[i+1])
                 else:
                     data_template["편입인정학점"] = 0
+        print("ocr 결과", data_template)
         print("✅ 파싱 완료.")
         return data_template
     
@@ -131,6 +132,5 @@ class OcrProcessingService:
         final_data = self._parse_ocr_to_json(ocr_text)
         return final_data
 
-# 👇 [중요] 이 부분이 파일에 누락되어 오류가 발생했습니다.
-# 클래스 정의 후, 실제로 사용할 객체(인스턴스)를 생성해줘야 합니다.
+
 ocr_service = OcrProcessingService()
