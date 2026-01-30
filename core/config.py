@@ -22,7 +22,7 @@ class Settings:
 
     # ChromaDB 경로
     DB_PATH = "./chroma_db"
-    DEFAULT_DB_COLLECTION_NAME = "2025-2"
+    DEFAULT_DB_COLLECTION_NAME = "2026-01_01"
 
     # 토크나이저 병렬 처리 비활성화
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
